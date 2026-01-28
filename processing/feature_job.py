@@ -1,11 +1,36 @@
 import os
-import sys
-from pyflink.table import EnvironmentSettings, TableEnvironment
+from pyflink.datastream import StreamExecutionEnvironment
+from pyflink.datastream.functions import SinkFunction
+from pyflink.table import StreamTableEnvironment, EnvironmentSettings
+import redis
+
+# Custom Redis Sink
+class RedisSink(SinkFunction):
+    def __init__(self, host='localhost', port=6379):
+        self.host = host
+        self.port = port
+        self.redis_client = None
+
+    def open(self, runtime_context):
+        # Initialize Redis connection in the worker
+        self.redis_client = redis.Redis(host=self.host, port=self.port, decode_responses=True)
+
+    def invoke(self, value, context):
+        # Value is a Row: (user_id, cnt, w_end)
+        user_id = value[0]
+        cnt = value[1]
+        
+        # Logic: Set key "user:{id}:click_count"
+        # In production, use HSET or proper feature store encoding
+        key = f"user:{user_id}:click_count"
+        self.redis_client.set(key, str(cnt))
+        print(f"Sink: {key} -> {cnt}", flush=True)
 
 def main():
-    # Setup environment
-    env_settings = EnvironmentSettings.in_streaming_mode()
-    t_env = TableEnvironment.create(env_settings)
+    # Setup DataStream + Table Environment
+    env = StreamExecutionEnvironment.get_execution_environment()
+    env.set_parallelism(1) # Simpler for local testing
+    t_env = StreamTableEnvironment.create(env)
 
     # Add JARs
     current_dir = os.getcwd()
@@ -37,21 +62,8 @@ def main():
         )
     """)
 
-    # 2. Define Sink (Printing to console for demo, representing Feature Store write)
-    t_env.execute_sql("""
-        CREATE TABLE feature_sink (
-            user_id STRING,
-            cnt BIGINT,
-            w_end TIMESTAMP(3)
-        ) WITH (
-            'connector' = 'print'
-        )
-    """)
-
-    # 3. Logic: Window Aggregation
-    # "Calculate number of actions per user per minute"
-    t_env.execute_sql("""
-        INSERT INTO feature_sink
+    # 2. Logic: Window Aggregation
+    result_table = t_env.sql_query("""
         SELECT 
             user_id, 
             COUNT(*) as cnt,
@@ -60,7 +72,16 @@ def main():
         GROUP BY 
             user_id, 
             TUMBLE(event_time, INTERVAL '1' MINUTE)
-    """).wait()
+    """)
+
+    # 3. Convert to DataStream & Sink to Redis
+    # Note: Requires 'redis' pip package installed in the python env running this
+    ds = t_env.to_data_stream(result_table)
+    ds.add_sink(RedisSink(host='localhost', port=6379))
+
+    # 4. Execute
+    print("Submitting Job...", flush=True)
+    env.execute("Feature Pipeline (Kafka -> Redis)")
 
 if __name__ == '__main__':
     main()
