@@ -1,0 +1,12 @@
+{
+  "namespace": "online.data.infra",
+  "type": "record",
+  "name": "UserInteraction",
+  "fields": [
+    {"name": "user_id", "type": "string"},
+    {"name": "item_id", "type": "string"},
+    {"name": "action_type", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+    {"name": "context", "type": ["null", "string"], "default": null}
+  ]
+}
