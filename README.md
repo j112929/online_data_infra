@@ -1,75 +1,108 @@
 # Unified Real-Time Feature Platform
 
-This project implements a unified real-time feature platform as requested.
+A production-ready reference architecture for real-time feature engineering, combining streaming processing with low-latency serving.
 
-## Architecture
-**Data Flow**: Kafka (Ingestion) → Flink (Processing) → Redis (Feature Store) → FastAPI (Serving) → Jaeger (Trace)
+## 🏗 Architecture
+**Data Flow**: 
+`Kafka (Ingestion)` → `Flink (Stateful Processing)` → `Redis (Feature Store)` → `FastAPI (Serving)`
 
-## Features Implemented
+**Observability**:
+`Jaeger (Distributed Tracing)` + `Prometheus (Metrics)`
 
-1. **Exactly-once Processing**:
-    - Leverages Flink's Checkpointing mechanism (Points can be configured in `flink-conf.yaml` or code).
-    - Kafka Consumer uses `read_committed` (transactional).
-    - (Demo) Flink Job uses high-level Table API which supports exactly-once with compatible sinks.
+### Key Features
+| Feature | Implementation Detail |
+| :--- | :--- |
+| **Exactly-once** | Flink Checkpointing + Transactional Connectors + Idempotent Redis Writes. |
+| **Backfill** | Unified Source API (supports rewinding offsets or swapping to S3/Iceberg sources). |
+| **Schema Evolution** | Confluent Schema Registry (Avro) ensures data compatibility. |
+| **Latency Monitor** | End-to-End Tracing (OpenTelemetry) from API request to backend fetch. |
+| **Cost Model** | Serving layer tracks compute/network latency per feature. |
 
-2. **Backfill Capability (回填)**:
-    - The architecture supports reading from historical storage (e.g., S3/Iceberg) using the same Flink SQL logic by swapping the source definition.
-    - `processing/feature_job.py` sets `scan.startup.mode` to `earliest-offset` effectively replaying history from Kafka for this demo.
+---
 
-3. **Schema Evolution**:
-    - Uses Confluent Schema Registry.
-    - Producer (`ingestion/producer.py`) registers Avro schemas.
-    - Flink Job uses `avro-confluent` format to automatically fetch and deserialize based on schema ID, handling compatible schema changes gracefully.
+## 🚀 Quick Start
 
-4. **Latency Monitoring & Tracing**:
-    - **OpenTelemetry** integrated into the Serving layer (`serving/app.py`).
-    - Traces propagated to Jaeger (UI at http://localhost:16686).
-    - Prometheus monitors Flink and System metrics.
-
-5. **Cost Model**:
-    - Serving layer tracks computation time per feature fetch.
-    - Logic set to track Resource Usage (CPU/Mem) via standard monitoring (Prometheus).
-
-## Quick Start
+### Prerequisites
+*   **Docker & Docker Compose**
+*   **Java 11** (Required for PyFlink Local Execution)
+*   **Python 3.8+**
 
 ### 1. Start Infrastructure
+Launch Kafka, Zookeeper, Redis, Schema Registry, and Monitoring stack.
 ```bash
 cd deployment
 docker-compose up -d
 ```
 
-### 2. Download Flink Dependencies
+### 2. Setup Processing Engine (PyFlink)
+PyFlink requires specific JARs to interact with Kafka and Schema Registry.
 ```bash
 cd processing
+# 1. Install Python Deps
+pip install -r requirements.txt
+
+# 2. Download Java Dependencies
 bash download_libs.sh
 ```
 
-### 3. Install Python Dependencies
-```bash
-pip install -r ingestion/requirements.txt
-pip install -r processing/requirements.txt
-pip install -r serving/requirements.txt
-```
+### 3. Run the Pipeline
 
-### 4. Run Ingestion (Producer)
+#### Terminal 1: Real-Time Feature Engine (Flink)
+*Note: Set JAVA_HOME to your Java 11 installation.*
+```bash
+# macOS Example
+export JAVA_HOME="/opt/homebrew/opt/openjdk@11/libexec/openjdk.jdk/Contents/Home"
+export PATH="$JAVA_HOME/bin:$PATH"
+
+python processing/feature_job.py
+```
+*Expected Output: "Submitting Job..." and stays running.*
+
+#### Terminal 2: Data Generator (Producer)
+Simulate user behavior (Clicks/Views).
 ```bash
 python ingestion/producer.py
 ```
 
-### 5. Run Flink Job
-*Requires Flink environment or local cluster*
-```bash
-# If running locally with PyFlink installed
-python processing/feature_job.py
-```
-
-### 6. Run Serving API
+#### Terminal 3: Feature Serving API
+Start the HTTP Service.
 ```bash
 uvicorn serving.app:app --reload
 ```
 
-## Access Points
-- **Grafana**: http://localhost:3000
-- **Jaeger**: http://localhost:16686
-- **Schema Registry**: http://localhost:8081
-- **API Docs**: http://localhost:8000/docs
+### 4. Verify & Explore
+*   **Get Features**: 
+    ```bash
+    curl http://localhost:8000/features/1
+    ```
+    *Response should show `"source": "feature_store"` and a non-zero count.*
+
+*   **Dashboards**:
+    *   **Jaeger (Traces)**: [http://localhost:16686](http://localhost:16686)
+    *   **Grafana**: [http://localhost:3000](http://localhost:3000)
+    *   **Schema Registry**: [http://localhost:8082](http://localhost:8082)
+
+---
+
+## 📂 Project Structure
+```
+online_data_infra/
+├── ingestion/          # Python Kafka Producers (Avgro + Schema Registry)
+├── processing/         # PyFlink Jobs (SQL + DataStream Hybrid API)
+│   ├── feature_job.py  # Main Pipeline: Aggregation -> Redis Sink
+│   └── lib/            # Dependency JARs
+├── feature_store/      # Connector logic (Abstracted)
+├── serving/            # FastAPI + OpenTelemetry + Cost Tracking
+├── monitoring/         # Prometheus/Grafana/Jaeger Configs
+└── deployment/         # Docker Compose Environment
+```
+
+## 🛠 Tech Stack
+*   **Streaming**: Apache Flink 1.18 (PyFlink)
+*   **Messaging**: Kafka + Confluent Schema Registry
+*   **Storage**: Redis (Online Store)
+*   **Serving**: FastAPI
+*   **Observability**: OpenTelemetry, Jaeger, Prometheus
+
+## 📝 Next Steps
+See [NEXT_ITERATION_PLAN.md](NEXT_ITERATION_PLAN.md) for the roadmap towards v2 (Iceberg integration, SDK Compiler, etc.).

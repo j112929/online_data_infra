@@ -7,13 +7,17 @@ from confluent_kafka.schema_registry import SchemaRegistryClient
 from confluent_kafka.schema_registry.avro import AvroSerializer
 from faker import Faker
 
+import os
+
 # Configuration
-SCHEMA_REGISTRY_URL = "http://localhost:8081"
+SCHEMA_REGISTRY_URL = "http://localhost:8082"
 BOOTSTRAP_SERVERS = "localhost:9092"
 TOPIC = "user_interactions"
 
 # Load Schema
-with open("user_interaction.avsc", "r") as f:
+script_dir = os.path.dirname(os.path.abspath(__file__))
+schema_path = os.path.join(script_dir, "user_interaction.avsc")
+with open(schema_path, "r") as f:
     schema_str = f.read()
 
 def delivery_report(err, msg):
